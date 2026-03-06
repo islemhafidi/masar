@@ -82,5 +82,5 @@ $RECYCLE.BIN/
 *.bak
 *.swp
 
-# Configuration files with secrets
-config.js
+# Firebase & Database Configuration
+config.js.env
