@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inscription - Masar El-Djazair</title>
+    <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Alexandria', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            blue: '#1e40af',
+                            dark: '#0f172a',
+                            accent: '#10b981',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-100 h-screen flex items-center justify-center">
+
+    <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-md border border-gray-200">
+        <div class="text-center mb-8">
+            <div class="flex items-center justify-center gap-2 mb-2">
+                <svg class="w-10 h-10 text-brand-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0121 18.382V7.618a1 1 0 01-.553-.894L15 4m0 13V4m0 0L9 7"></path></svg>
+            </div>
+            <h2 class="text-2xl font-bold text-gray-900">Créer un compte</h2>
+            <p class="text-gray-500 text-sm mt-1">Rejoignez Masar El-Djazair pour accéder à nos outils.</p>
+        </div>
+
+        <form onsubmit="event.preventDefault(); handleRegister();" class="space-y-6">
+            <div>
+                <label for="email" class="block text-sm font-medium text-gray-700">Adresse Email</label>
+                <div class="mt-1 relative rounded-md shadow-sm">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"></path></svg>
+                    </div>
+                    <input type="email" name="email" id="email" class="focus:ring-brand-blue focus:border-brand-blue block w-full pl-10 sm:text-sm border-gray-300 rounded-md p-3 border outline-none" placeholder="vous@exemple.com" required>
+                </div>
+            </div>
+
+            <div>
+                <label for="password" class="block text-sm font-medium text-gray-700">Mot de passe</label>
+                <div class="mt-1 relative rounded-md shadow-sm">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                    </div>
+                    <input type="password" name="password" id="password" class="focus:ring-brand-blue focus:border-brand-blue block w-full pl-10 sm:text-sm border-gray-300 rounded-md p-3 border outline-none" placeholder="••••••••" required minlength="6">
+                </div>
+                <p class="mt-1 text-xs text-gray-500">Minimum 6 caractères</p>
+            </div>
+
+            <div>
+                <label for="confirm-password" class="block text-sm font-medium text-gray-700">Confirmer le mot de passe</label>
+                <div class="mt-1 relative rounded-md shadow-sm">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                    </div>
+                    <input type="password" name="confirm-password" id="confirm-password" class="focus:ring-brand-blue focus:border-brand-blue block w-full pl-10 sm:text-sm border-gray-300 rounded-md p-3 border outline-none" placeholder="••••••••" required minlength="6">
+                </div>
+            </div>
+
+            <div>
+                <button type="submit" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-brand-accent hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-accent transition-colors">
+                    S'inscrire
+                </button>
+            </div>
+            
+            <div id="error-msg" class="text-red-500 text-sm text-center hidden bg-red-50 p-2 rounded border border-red-100"></div>
+            <div id="success-msg" class="text-green-600 text-sm text-center hidden bg-green-50 p-2 rounded border border-green-100"></div>
+        </form>
+        
+        <div class="mt-6 text-center">
+            <p class="text-sm text-gray-500">
+                Vous avez déjà un compte ? 
+                <a href="login.html" class="font-medium text-brand-blue hover:text-blue-500">Se connecter</a>
+            </p>
+        </div>
+    </div>
+
+    <!-- Load Configuration -->
+    <script src="config.js"></script>
+
+    <script>
+        // Supabase Configuration
+        let supabaseClient;
+        
+        if (typeof SUPABASE_CONFIG === 'undefined') {
+            console.error('SUPABASE_CONFIG is missing. Please ensure config.js is loaded.');
+            document.body.innerHTML = '<div style="color:red; text-align:center; padding:20px;">Erreur critique: Fichier de configuration manquant.</div>';
+        } else {
+            // Use a different variable name for the client to avoid shadowing the global 'supabase' object from the CDN
+            supabaseClient = supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.key);
+        }
+
+        async function handleRegister() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirm-password').value;
+            const errorMsg = document.getElementById('error-msg');
+            const successMsg = document.getElementById('success-msg');
+            const btn = document.querySelector('button[type="submit"]');
+
+            // Basic Validation
+            if (!email || !password || !confirmPassword) {
+                showError("Veuillez remplir tous les champs.");
+                return;
+            }
+
+            if (password !== confirmPassword) {
+                showError("Les mots de passe ne correspondent pas.");
+                return;
+            }
+
+            if (password.length < 6) {
+                showError("Le mot de passe doit contenir au moins 6 caractères.");
+                return;
+            }
+
+            // Show loading state
+            const originalBtnText = btn.innerHTML;
+            btn.innerHTML = '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Inscription...';
+            btn.disabled = true;
+            hideMessages();
+
+            try {
+                const { data, error } = await supabaseClient.auth.signUp({
+                    email: email,
+                    password: password,
+                });
+
+                if (error) {
+                    throw error;
+                }
+
+                // Check if email confirmation is required (Supabase default usually requires it)
+                if (data.user && !data.session) {
+                    showSuccess("Inscription réussie ! Veuillez vérifier votre email pour confirmer votre compte avant de vous connecter.");
+                    btn.innerHTML = "Inscription réussie";
+                } else {
+                    // Auto login if confirmation is off
+                    window.location.href = 'traffic_wizard.html';
+                }
+
+            } catch (error) {
+                console.error('Registration error:', error);
+                showError("Erreur d'inscription : " + error.message);
+                btn.innerHTML = originalBtnText;
+                btn.disabled = false;
+            }
+        }
+
+        function showError(msg) {
+            const el = document.getElementById('error-msg');
+            el.textContent = msg;
+            el.classList.remove('hidden');
+            document.getElementById('success-msg').classList.add('hidden');
+        }
+
+        function showSuccess(msg) {
+            const el = document.getElementById('success-msg');
+            el.textContent = msg;
+            el.classList.remove('hidden');
+            document.getElementById('error-msg').classList.add('hidden');
+        }
+
+        function hideMessages() {
+            document.getElementById('error-msg').classList.add('hidden');
+            document.getElementById('success-msg').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>

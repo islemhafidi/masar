@@ -1,0 +1,1235 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Masar El-Djazair - Module Trafic V2.3 (Français)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Alexandria:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <!-- Load Configuration -->
+    <script src="config.js"></script>
+
+    <!-- Animations -->
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/countup.js/2.0.7/countUp.min.js"></script>
+
+    <script>
+        // Supabase Configuration from config.js
+        if (typeof SUPABASE_CONFIG === 'undefined') {
+            console.error('SUPABASE_CONFIG is missing. Please ensure config.js is loaded.');
+            alert('Erreur de configuration: config.js manquant.');
+        }
+        
+        const supabaseUrl = SUPABASE_CONFIG.url;
+        const supabaseKey = SUPABASE_CONFIG.key;
+        const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
+
+        // Global State
+        window.currentUser = null;
+
+        // Auth Check on Load
+        async function checkAuth() {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (session) {
+                window.currentUser = session.user;
+                updateUIForLogin(session.user);
+                loadUserProjects(session.user.id);
+            } else {
+                window.currentUser = null;
+                updateUIForLogout();
+            }
+        }
+        
+        // Listen for auth changes
+        supabaseClient.auth.onAuthStateChange((event, session) => {
+            if (session) {
+                window.currentUser = session.user;
+                updateUIForLogin(session.user);
+                loadUserProjects(session.user.id);
+            } else {
+                window.currentUser = null;
+                updateUIForLogout();
+            }
+        });
+
+        // Initialize
+        checkAuth();
+
+        window.toggleAuthModal = (show = true) => {
+            const modal = document.getElementById('auth-modal');
+            if(show) {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+            } else {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }
+        };
+
+        window.handleLogin = async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('auth-email').value;
+            const password = document.getElementById('auth-password').value;
+            const isSignup = document.getElementById('auth-is-signup').checked;
+            const errorMsg = document.getElementById('auth-error');
+            errorMsg.classList.add('hidden');
+
+            try {
+                let error;
+                if (isSignup) {
+                    const { error: signUpError } = await supabaseClient.auth.signUp({
+                        email: email,
+                        password: password
+                    });
+                    if (signUpError) throw signUpError;
+                    alert("Inscription réussie ! Veuillez vérifier votre email ou vous connecter.");
+                } else {
+                    const { error: signInError } = await supabaseClient.auth.signInWithPassword({
+                        email: email,
+                        password: password
+                    });
+                    if (signInError) throw signInError;
+                }
+                window.toggleAuthModal(false);
+            } catch (err) {
+                console.error("Auth Error:", err);
+                errorMsg.textContent = err.message || "Une erreur est survenue.";
+                errorMsg.classList.remove('hidden');
+            }
+        };
+
+        window.logout = async () => {
+            const { error } = await supabaseClient.auth.signOut();
+            if (error) console.error('Error logging out:', error.message);
+            else alert("Déconnexion réussie");
+        };
+
+        window.saveProject = async () => {
+            if (!window.currentUser) {
+                window.toggleAuthModal(true);
+                return;
+            }
+
+            const projectData = {
+                uid: window.currentUser.id, // Supabase uses 'id' not 'uid'
+                name: document.getElementById('proj_name').value || "Projet Sans Nom",
+                inputs: {
+                    L: document.getElementById('env_L').value,
+                    Ls: document.getElementById('env_Ls').value,
+                    relief: document.getElementById('env_relief').value,
+                    cat: document.getElementById('env_cat').value,
+                    tjma0: document.getElementById('tr_tjma0').value,
+                    tau: document.getElementById('tr_tau').value,
+                    d: document.getElementById('tr_d').value,
+                    n: document.getElementById('tr_n').value,
+                    z: document.getElementById('tr_z_pct').value,
+                    roadType: document.getElementById('cap_type').value
+                },
+                results: {
+                    tjma_h: document.getElementById('disp_tjma_h').innerText,
+                    qadm: document.getElementById('res_Qadm').innerText,
+                    n_lanes: document.getElementById('res_N').innerText
+                }
+            };
+
+            try {
+                const { data, error } = await supabaseClient
+                    .from('projects')
+                    .insert([projectData])
+                    .select();
+
+                if (error) throw error;
+                
+                alert("Projet sauvegardé avec succès !");
+                loadUserProjects(window.currentUser.id);
+            } catch (e) {
+                console.error("Erreur lors de la sauvegarde: ", e);
+                alert("Erreur: " + e.message);
+            }
+        };
+
+        async function loadUserProjects(uid) {
+            const list = document.getElementById('project-history-list');
+            list.innerHTML = '<div class="text-center text-gray-500 text-xs py-4">Chargement...</div>';
+            
+            const { data: projects, error } = await supabaseClient
+                .from('projects')
+                .select('*')
+                .eq('uid', uid)
+                .order('created_at', { ascending: false });
+            
+            list.innerHTML = '';
+            
+            if (error) {
+                console.error("Error loading projects:", error);
+                list.innerHTML = '<div class="text-center text-red-400 text-xs py-4">Erreur de chargement</div>';
+                return;
+            }
+
+            if (!projects || projects.length === 0) {
+                list.innerHTML = '<div class="text-center text-gray-500 text-xs py-4">Aucun projet sauvegardé</div>';
+                return;
+            }
+
+            projects.forEach((project) => {
+                const div = document.createElement('div');
+                div.className = 'p-3 hover:bg-slate-800 rounded-lg cursor-pointer transition-colors group mb-2';
+                div.onclick = () => loadProjectIntoUI(project.inputs);
+                
+                // Format date safely
+                let dateStr = "Date inconnue";
+                if (project.created_at) {
+                    dateStr = new Date(project.created_at).toLocaleDateString();
+                }
+
+                div.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <span class="text-sm font-medium text-gray-300 group-hover:text-white truncate w-32">${project.name}</span>
+                        <span class="text-[10px] text-gray-500">${project.results?.n_lanes || '--'} voies</span>
+                    </div>
+                    <div class="text-[10px] text-gray-500 mt-1 truncate">
+                        ${dateStr}
+                    </div>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        window.loadProjectIntoUI = (inputs) => {
+            if(!inputs) return;
+            document.getElementById('proj_name').value = inputs.name || ""; // Should be handled if saved in inputs logic above, but added just in case
+            
+            // Set values
+            if(inputs.L) document.getElementById('env_L').value = inputs.L;
+            if(inputs.Ls) document.getElementById('env_Ls').value = inputs.Ls;
+            if(inputs.relief) document.getElementById('env_relief').value = inputs.relief;
+            if(inputs.cat) document.getElementById('env_cat').value = inputs.cat;
+            if(inputs.tjma0) document.getElementById('tr_tjma0').value = inputs.tjma0;
+            if(inputs.tau) document.getElementById('tr_tau').value = inputs.tau;
+            if(inputs.d) document.getElementById('tr_d').value = inputs.d;
+            if(inputs.n) document.getElementById('tr_n').value = inputs.n;
+            if(inputs.z) document.getElementById('tr_z_pct').value = inputs.z;
+            if(inputs.roadType) document.getElementById('cap_type').value = inputs.roadType;
+            
+            // Trigger updates
+            window.updateEnvironment(); // Ensure this is global
+            if(inputs.z) document.getElementById('disp_z').innerText = inputs.z + '%';
+            
+            // Go to step 4 to see results
+            window.goToStep(4);
+            // Recalculate
+            window.processTrafficCalculation(); // Ensure this is global
+            
+            alert("Projet chargé !");
+        };
+
+        function updateUIForLogin(user) {
+            const emailName = user.email ? user.email.split('@')[0] : 'Utilisateur';
+            document.getElementById('user-display').innerHTML = `
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-full bg-brand-blue text-white flex items-center justify-center text-xs font-bold">
+                        ${emailName[0].toUpperCase()}
+                    </div>
+                    <div class="hidden md:block text-left">
+                        <div class="text-xs font-bold text-slate-800">${emailName}</div>
+                        <div class="text-[10px] text-gray-500">Connecté</div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('auth-btn-text').textContent = "Déconnexion";
+            document.getElementById('auth-btn-icon').innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>';
+            document.getElementById('sidebar-history').classList.remove('hidden');
+        }
+
+        function updateUIForLogout() {
+            document.getElementById('user-display').innerHTML = '<span class="text-sm font-bold text-gray-500">Invité</span>';
+            document.getElementById('auth-btn-text').textContent = "Connexion";
+            document.getElementById('auth-btn-icon').innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"></path>';
+            document.getElementById('sidebar-history').classList.add('hidden');
+            document.getElementById('project-history-list').innerHTML = '';
+        }
+
+    </script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Alexandria', 'sans-serif'],
+                    },
+                    colors: {
+                        slate: { 850: '#1e293b', 900: '#0f172a' },
+                        brand: { blue: '#1e3a8a', accent: '#f59e0b', success: '#10b981', danger: '#ef4444' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Glassmorphism */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.1);
+        }
+        
+        /* Custom Scrollbar */
+        .sidebar-scroll::-webkit-scrollbar { width: 6px; }
+        .sidebar-scroll::-webkit-scrollbar-track { background: #0f172a; }
+        .sidebar-scroll::-webkit-scrollbar-thumb { background-color: #334155; border-radius: 20px; }
+        
+        /* Hide number arrows */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        
+        /* Step Indicator Styles */
+        .step-indicator { @apply w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm border-2 transition-all duration-300 transform; }
+        .step-active { @apply bg-brand-blue text-white border-brand-blue scale-110 shadow-lg; }
+        .step-completed { @apply bg-brand-success text-white border-brand-success; }
+        .step-inactive { @apply bg-white text-gray-400 border-gray-300; }
+        
+        .badge-env { @apply px-3 py-1 rounded-full text-xs font-bold uppercase transition-all duration-300; }
+        .badge-E1 { @apply bg-green-100 text-green-800 border border-green-200; }
+        .badge-E2 { @apply bg-yellow-100 text-yellow-800 border border-yellow-200; }
+        .badge-E3 { @apply bg-red-100 text-red-800 border border-red-200; }
+
+        /* Custom Input Focus Glow */
+        .input-glow:focus {
+            border-color: #1e3a8a;
+            box-shadow: 0 0 0 4px rgba(30, 58, 138, 0.1);
+        }
+
+        /* Hover Lift Effect */
+        .hover-lift {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .hover-lift:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans text-gray-800 h-screen flex overflow-hidden">
+
+    <!-- Sidebar -->
+    <aside class="w-64 bg-slate-900 text-gray-300 flex flex-col flex-shrink-0 hidden md:flex z-20 shadow-2xl">
+        <div class="p-6 border-b border-gray-700 relative overflow-hidden group">
+            <div class="absolute inset-0 bg-brand-blue opacity-0 group-hover:opacity-10 transition-opacity duration-500"></div>
+            <h1 class="text-2xl font-bold text-white tracking-wider flex items-center gap-3 relative z-10">
+                <svg class="w-8 h-8 text-brand-accent animate-spin-slow" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="animation-duration: 10s;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                Masar DZ
+            </h1>
+            <p class="text-xs text-gray-500 mt-2 font-medium tracking-wide">INGÉNIERIE DE PRÉCISION</p>
+        </div>
+        <nav class="flex-1 p-4 space-y-2 overflow-y-auto sidebar-scroll">
+            <button class="w-full text-left px-4 py-3 bg-brand-blue/20 text-white rounded-xl flex items-center gap-3 border-l-4 border-brand-accent shadow-lg backdrop-blur-sm transition-all duration-300 transform hover:scale-105">
+                <svg class="w-5 h-5 text-brand-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                Étude du Trafic
+            </button>
+            <button class="w-full text-left px-4 py-3 text-gray-400 hover:bg-slate-800 hover:text-white rounded-xl flex items-center gap-3 transition-all duration-300 hover:translate-x-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                Géotechnique
+            </button>
+            <button class="w-full text-left px-4 py-3 text-gray-400 hover:bg-slate-800 hover:text-white rounded-xl flex items-center gap-3 transition-all duration-300 hover:translate-x-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path></svg>
+                Dimensionnement
+            </button>
+            <button class="w-full text-left px-4 py-3 text-gray-400 hover:bg-slate-800 hover:text-white rounded-xl flex items-center gap-3 transition-all duration-300 hover:translate-x-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                Hydraulique
+            </button>
+            <button class="w-full text-left px-4 py-3 text-gray-400 hover:bg-slate-800 hover:text-white rounded-xl flex items-center gap-3 transition-all duration-300 hover:translate-x-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0121 18.382V7.618a1 1 0 01-.553-.894L15 4m0 13V4m0 0L9 7"></path></svg>
+                Tracé en Plan
+            </button>
+            
+            <!-- History Section -->
+            <div id="sidebar-history" class="hidden mt-6 pt-6 border-t border-gray-700">
+                <h3 class="px-4 text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Historique Projets</h3>
+                <div id="project-history-list" class="px-2 space-y-1">
+                    <!-- Projects will be loaded here -->
+                </div>
+            </div>
+        </nav>
+        <div class="p-4 border-t border-gray-700 text-xs text-center text-gray-500 mt-auto">
+            <button onclick="window.currentUser ? window.logout() : window.toggleAuthModal(true)" class="w-full flex items-center justify-center px-4 py-2 border border-gray-600 rounded-lg shadow-sm text-xs font-medium text-gray-300 hover:bg-brand-blue/20 hover:text-white hover:border-brand-blue/50 transition-all duration-300 group">
+                <svg id="auth-btn-icon" class="w-4 h-4 mr-2 transition-transform duration-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"></path></svg>
+                <span id="auth-btn-text">Connexion</span>
+            </button>
+            <div class="mt-4 text-[10px] opacity-50 font-light">
+                Conçu avec précision pour les ingénieurs algériens
+            </div>
+        </div>
+    </aside>
+
+    <!-- Auth Modal -->
+    <div id="auth-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm transition-opacity duration-300">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all scale-100 p-8 relative">
+            <button onclick="window.toggleAuthModal(false)" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+            
+            <h2 class="text-2xl font-bold text-slate-800 mb-2">Bienvenue sur Masar DZ</h2>
+            <p class="text-gray-500 text-sm mb-6">Connectez-vous pour sauvegarder vos projets.</p>
+            
+            <form onsubmit="window.handleLogin(event)" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input type="email" id="auth-email" required class="w-full p-3 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue transition-all" placeholder="ingenieur@exemple.com">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Mot de passe</label>
+                    <input type="password" id="auth-password" required class="w-full p-3 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue transition-all" placeholder="••••••••">
+                </div>
+                
+                <div class="flex items-center gap-2 mt-4">
+                    <input type="checkbox" id="auth-is-signup" class="w-4 h-4 text-brand-blue rounded border-gray-300 focus:ring-brand-blue">
+                    <label for="auth-is-signup" class="text-sm text-gray-600 select-none">Je suis un nouvel utilisateur (Créer un compte)</label>
+                </div>
+
+                <div id="auth-error" class="hidden text-red-500 text-sm font-medium bg-red-50 p-3 rounded-lg border border-red-100"></div>
+
+                <button type="submit" class="w-full bg-brand-blue hover:bg-blue-800 text-white font-bold py-3 rounded-xl shadow-lg hover:shadow-blue-500/30 transition-all transform hover:-translate-y-1 active:scale-95">
+                    Continuer
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="flex-1 overflow-y-auto p-4 md:p-8 w-full relative">
+        <!-- Sticky Blur Header -->
+        <div class="sticky top-0 z-30 -mx-4 -mt-4 md:-mx-8 md:-mt-8 px-4 md:px-8 py-4 mb-6 bg-slate-50/80 backdrop-blur-lg border-b border-gray-200/50 flex justify-between items-center transition-all duration-300" data-aos="fade-down">
+            <div>
+                <h2 class="text-3xl font-bold text-slate-800 flex items-center gap-3">
+                    <span class="bg-brand-blue w-2 h-8 rounded-full"></span>
+                    Assistant Trafic
+                </h2>
+                <p class="text-gray-500 text-sm mt-1 ml-5">Méthode Normalisée SETRA/CTTP</p>
+            </div>
+            
+            <div class="flex items-center gap-4">
+                <!-- User Display -->
+                <div id="user-display" class="hidden md:block">
+                    <!-- Dynamic Content -->
+                    <span class="text-sm font-bold text-gray-500">Invité</span>
+                </div>
+
+                <!-- Advanced Settings Toggle -->
+                <button onclick="toggleSettings()" class="text-gray-500 hover:text-brand-blue transition-all duration-300 p-2 rounded-full hover:bg-white hover:shadow-md focus:outline-none transform hover:rotate-90" title="Paramètres Avancés">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                </button>
+            </div>
+        </div>
+        
+        <div class="max-w-6xl mx-auto pt-4">
+            <!-- Advanced Settings Modal (Hidden) -->
+            <div id="settings-panel" class="hidden mb-8 glass-card p-6 rounded-2xl transition-all duration-300" data-aos="fade-up">
+                <h4 class="text-sm font-bold text-gray-700 mb-4 uppercase tracking-wide border-b pb-2 flex items-center gap-2">
+                    <span class="w-2 h-2 bg-brand-accent rounded-full"></span> Constantes de Calcul
+                </h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="group">
+                        <label class="block text-xs font-medium text-gray-500 uppercase mb-1 group-hover:text-brand-blue transition-colors">Facteur de Pointe Horaire (1/n)</label>
+                        <input type="number" id="const_peak" value="0.12" step="0.01" class="w-full p-2 border border-gray-200 rounded-lg text-sm input-glow outline-none transition-all">
+                        <p class="text-xs text-gray-400 mt-1">Défaut 0.12 (8ème à 12ème heure)</p>
+                    </div>
+                    <div class="group">
+                        <label class="block text-xs font-medium text-gray-500 uppercase mb-1 group-hover:text-brand-blue transition-colors">Coefficient d'Asymétrie (S)</label>
+                        <input type="number" id="const_S" value="0.67" step="0.01" class="w-full p-2 border border-gray-200 rounded-lg text-sm input-glow outline-none transition-all">
+                        <p class="text-xs text-gray-400 mt-1">Défaut 0.67 (2/3)</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Wizard Progress -->
+            <div class="flex items-center justify-between mb-10 px-4 md:px-12 relative" data-aos="fade-in" data-aos-delay="200">
+                <div class="absolute left-0 top-1/2 transform -translate-y-1/2 w-full h-1 bg-gray-200 -z-10 rounded-full"></div>
+                
+                <div class="flex flex-col items-center cursor-pointer group" onclick="goToStep(1)">
+                    <div id="step-ind-1" class="step-indicator step-active group-hover:ring-4 group-hover:ring-blue-100">1</div>
+                    <span class="text-xs font-bold mt-2 text-brand-blue bg-slate-50 px-2 rounded">Géométrie</span>
+                </div>
+                <div class="flex flex-col items-center cursor-pointer group" onclick="goToStep(2)">
+                    <div id="step-ind-2" class="step-indicator step-inactive group-hover:ring-4 group-hover:ring-blue-100">2</div>
+                    <span class="text-xs font-bold mt-2 text-gray-400 bg-slate-50 px-2 rounded">Trafic</span>
+                </div>
+                <div class="flex flex-col items-center cursor-pointer group" onclick="goToStep(3)">
+                    <div id="step-ind-3" class="step-indicator step-inactive group-hover:ring-4 group-hover:ring-blue-100">3</div>
+                    <span class="text-xs font-bold mt-2 text-gray-400 bg-slate-50 px-2 rounded">Capacité</span>
+                </div>
+                <div class="flex flex-col items-center cursor-pointer group" onclick="goToStep(4)">
+                    <div id="step-ind-4" class="step-indicator step-inactive group-hover:ring-4 group-hover:ring-blue-100">4</div>
+                    <span class="text-xs font-bold mt-2 text-gray-400 bg-slate-50 px-2 rounded">Résultats</span>
+                </div>
+            </div>
+
+            <!-- Wizard Content -->
+            <div class="glass-card rounded-2xl overflow-hidden min-h-[500px] flex flex-col relative transition-all duration-500" data-aos="zoom-in-up" data-aos-duration="600">
+                
+                <!-- Step 1: Geometry & Environment -->
+                <div id="step-1" class="p-8 md:p-10 flex-1">
+                    <h3 class="text-2xl font-bold text-brand-blue mb-2 flex items-center gap-3">
+                        <span class="w-10 h-10 rounded-xl bg-brand-blue text-white flex items-center justify-center text-lg font-bold shadow-lg shadow-blue-500/30">1</span>
+                        Géométrie & Environnement
+                    </h3>
+                    <p class="text-sm text-gray-500 mb-8 ml-14 max-w-2xl">Définissez les paramètres physiques de la route pour calculer automatiquement l'indice de sinuosité et la classe d'environnement.</p>
+                    
+                    <div class="mb-6 hover-lift p-1 rounded-lg transition-all">
+                        <label class="block text-sm font-bold text-gray-700 mb-2">Nom du Projet</label>
+                        <input type="text" id="proj_name" class="w-full p-4 border border-gray-200 rounded-xl input-glow outline-none transition-all bg-white/50" placeholder="ex: Dédoublement RN 127">
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
+                        <div class="hover-lift p-1 rounded-lg transition-all">
+                            <label class="block text-sm font-bold text-gray-700 mb-2">Longueur totale (L)</label>
+                            <input type="number" id="env_L" class="w-full p-4 border border-gray-200 rounded-xl input-glow outline-none transition-all bg-white/50" placeholder="ex: 15500" min="1" oninput="updateEnvironment()">
+                            <span class="text-xs text-gray-400 mt-1 block text-right">Mètres</span>
+                        </div>
+                        <div class="hover-lift p-1 rounded-lg transition-all">
+                            <label class="block text-sm font-bold text-gray-700 mb-2">Longueur Courbes (Ls)</label>
+                            <input type="number" id="env_Ls" class="w-full p-4 border border-gray-200 rounded-xl input-glow outline-none transition-all bg-white/50" placeholder="ex: 2500" min="0" oninput="updateEnvironment()">
+                            <span class="text-xs text-gray-400 mt-1 block text-right">Rayon < 200m</span>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                        <div class="hover-lift p-1 rounded-lg transition-all">
+                            <label class="block text-sm font-bold text-gray-700 mb-2">Relief</label>
+                            <div class="relative">
+                                <select id="env_relief" class="w-full p-4 border border-gray-200 rounded-xl input-glow outline-none bg-white/50 cursor-pointer appearance-none" onchange="updateEnvironment()">
+                                    <option value="flat">Plat (0-3%)</option>
+                                    <option value="rolling">Vallonné (3-6%)</option>
+                                    <option value="mountainous">Montagneux (>6%)</option>
+                                </select>
+                                <div class="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="hover-lift p-1 rounded-lg transition-all">
+                            <label class="block text-sm font-bold text-gray-700 mb-2">Catégorie</label>
+                            <div class="relative">
+                                <select id="env_cat" class="w-full p-4 border border-gray-200 rounded-xl input-glow outline-none bg-white/50 cursor-pointer appearance-none">
+                                    <option value="1">Catégorie 1 (Autoroute)</option>
+                                    <option value="2">Catégorie 2 (Nationale)</option>
+                                    <option value="3">Catégorie 3 (Régionale)</option>
+                                    <option value="4">Catégorie 4 (Locale)</option>
+                                    <option value="5">Catégorie 5 (Rurale)</option>
+                                </select>
+                                <div class="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Real-time Environment Status -->
+                    <div class="mt-8 p-6 bg-gradient-to-r from-slate-50 to-white rounded-2xl border border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4 shadow-inner hover:shadow-md transition-shadow">
+                        <div class="flex items-center gap-3">
+                             <div class="p-2 bg-white rounded-lg shadow-sm text-brand-blue">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                             </div>
+                            <div>
+                                <span class="text-xs text-gray-400 uppercase font-bold tracking-wider block">Indice de Sinuosité</span>
+                                <span id="disp_sigma" class="font-mono font-bold text-xl text-slate-800">--</span>
+                            </div>
+                        </div>
+                        <div id="env_badge" class="badge-env bg-gray-100 text-gray-400 border border-gray-200 px-6 py-2">
+                            En attente...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2: Traffic Data -->
+                <div id="step-2" class="p-8 md:p-10 hidden flex-1">
+                    <h3 class="text-2xl font-bold text-brand-blue mb-2 flex items-center gap-3">
+                        <span class="w-10 h-10 rounded-xl bg-brand-blue text-white flex items-center justify-center text-lg font-bold shadow-lg shadow-blue-500/30">2</span>
+                        Données de Trafic
+                    </h3>
+                    <p class="text-sm text-gray-500 mb-8 ml-14 max-w-2xl">Paramétrez le volume actuel et les prévisions de croissance pour l'horizon du projet.</p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                        <div class="hover-lift p-1 rounded-lg transition-all">
+                            <label class="block text-sm font-bold text-gray-700 mb-2">Trafic Actuel (TJMA₀)</label>
+                            <input type="number" id="tr_tjma0" class="w-full p-4 border border-gray-200 rounded-xl input-glow outline-none transition-all bg-white/50" placeholder="ex: 5000">
+                        </div>
+                        <div class="hover-lift p-1 rounded-lg transition-all">
+                            <label class="block text-sm font-bold text-gray-700 mb-2">Taux de Croissance (τ)</label>
+                            <div class="relative">
+                                <input type="number" id="tr_tau" class="w-full p-4 border border-gray-200 rounded-xl input-glow outline-none transition-all bg-white/50" placeholder="ex: 4.5" step="0.1">
+                                <span class="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 font-bold">%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                        <div class="bg-blue-50/50 p-6 rounded-2xl border border-blue-100 hover:shadow-md transition-all group">
+                            <label class="block text-xs font-bold text-blue-800 uppercase mb-2 tracking-wide group-hover:text-blue-600 transition-colors">Délai de Réalisation</label>
+                            <div class="flex items-center gap-3">
+                                <input type="number" id="tr_d" class="w-24 p-2 border-b-2 border-blue-200 bg-transparent text-2xl font-bold text-blue-900 focus:border-blue-500 outline-none text-center" placeholder="3" value="3">
+                                <span class="text-sm text-blue-600 font-medium">Années</span>
+                            </div>
+                        </div>
+                        <div class="bg-green-50/50 p-6 rounded-2xl border border-green-100 hover:shadow-md transition-all group">
+                            <label class="block text-xs font-bold text-green-800 uppercase mb-2 tracking-wide group-hover:text-green-600 transition-colors">Durée de Vie</label>
+                            <div class="flex items-center gap-3">
+                                <input type="number" id="tr_n" class="w-24 p-2 border-b-2 border-green-200 bg-transparent text-2xl font-bold text-green-900 focus:border-green-500 outline-none text-center" placeholder="20" value="20">
+                                <span class="text-sm text-green-600 font-medium">Années</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-8 p-6 bg-white border border-gray-100 rounded-2xl shadow-sm">
+                        <div class="flex justify-between items-center mb-4">
+                            <label class="block text-sm font-bold text-gray-700">Pourcentage Poids Lourds (Z)</label>
+                            <span id="disp_z" class="font-mono font-bold text-brand-accent text-xl">15%</span>
+                        </div>
+                        <input type="range" id="tr_z_pct" min="0" max="50" value="15" step="1" class="w-full h-3 bg-gray-200 rounded-full appearance-none cursor-pointer accent-brand-accent hover:accent-orange-400 transition-all" oninput="document.getElementById('disp_z').innerText = this.value + '%'">
+                        <div class="flex justify-between text-xs text-gray-400 mt-2 font-medium">
+                            <span>0% (Léger)</span>
+                            <span>25% (Mixte)</span>
+                            <span>50% (Lourd)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3: Road Design -->
+                <div id="step-3" class="p-8 md:p-10 hidden flex-1">
+                    <h3 class="text-2xl font-bold text-brand-blue mb-2 flex items-center gap-3">
+                        <span class="w-10 h-10 rounded-xl bg-brand-blue text-white flex items-center justify-center text-lg font-bold shadow-lg shadow-blue-500/30">3</span>
+                        Capacité & Conception
+                    </h3>
+                    <p class="text-sm text-gray-500 mb-8 ml-14 max-w-2xl">Choisissez le profil en travers pour déterminer la capacité théorique de référence.</p>
+
+                    <div class="max-w-2xl mx-auto">
+                        <div class="mb-8 hover-lift p-1 rounded-lg">
+                            <label class="block text-sm font-bold text-gray-700 mb-3">Type de Route Proposé</label>
+                            <div class="relative">
+                                <select id="cap_type" class="w-full p-5 pl-12 border border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white text-lg font-medium appearance-none cursor-pointer transition-all hover:border-brand-blue">
+                                    <option value="2_lanes">Route à 2 voies (1x2)</option>
+                                    <option value="3_lanes">Route à 3 voies</option>
+                                    <option value="4_lanes">Chaussée séparée (2x2 ou plus)</option>
+                                </select>
+                                <div class="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-brand-blue">
+                                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0121 18.382V7.618a1 1 0 01-.553-.894L15 4m0 13V4m0 0L9 7"></path></svg>
+                                </div>
+                                <div class="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-500">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-gradient-to-br from-slate-800 to-slate-900 p-8 rounded-2xl text-white shadow-xl transform transition-transform hover:scale-[1.02]">
+                            <h4 class="font-bold text-brand-accent text-lg mb-6 flex items-center gap-3 border-b border-gray-700 pb-4">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                                Paramètres Actifs
+                            </h4>
+                            <ul class="space-y-4 text-sm text-gray-300">
+                                <li class="flex justify-between items-center bg-white/5 p-3 rounded-lg">
+                                    <span>Facteur de Pointe (1/n)</span>
+                                    <strong id="disp_peak" class="text-white text-lg">0.12</strong>
+                                </li>
+                                <li class="flex justify-between items-center bg-white/5 p-3 rounded-lg">
+                                    <span>Coeff Asymétrie (S)</span>
+                                    <strong id="disp_S" class="text-white text-lg">0.67</strong>
+                                </li>
+                                <li class="flex justify-between items-center bg-brand-blue/20 border border-brand-blue/30 p-3 rounded-lg mt-2">
+                                    <span class="text-brand-accent font-medium">Capacité Théorique</span>
+                                    <span class="text-xs bg-brand-accent text-slate-900 px-2 py-1 rounded font-bold uppercase tracking-wider">Dynamique</span>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 4: Results -->
+                <div id="step-4" class="p-8 md:p-10 hidden flex-1 flex flex-col">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 border-b border-gray-200 pb-4 gap-4">
+                        <h3 class="text-2xl font-bold text-brand-blue flex items-center gap-3">
+                            <span class="w-10 h-10 rounded-xl bg-brand-success text-white flex items-center justify-center text-lg font-bold shadow-lg shadow-green-500/30">4</span>
+                            Résultats
+                        </h3>
+                        <div class="flex flex-wrap gap-4">
+                            <button onclick="window.saveProject()" class="bg-brand-blue hover:bg-blue-800 text-white font-bold py-3 px-6 rounded-xl flex items-center gap-3 shadow-lg hover:shadow-blue-500/30 transition-all transform hover:-translate-y-1 hover:scale-105 active:scale-95 group">
+                                <svg class="w-5 h-5 group-hover:animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                                Sauvegarder
+                            </button>
+                            <button onclick="generatePDF()" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-xl flex items-center gap-3 shadow-lg hover:shadow-red-500/30 transition-all transform hover:-translate-y-1 hover:scale-105 active:scale-95 group">
+                                <svg class="w-5 h-5 group-hover:animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                                Exporter Rapport PDF
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-6">
+                        <!-- Left Col: Metrics -->
+                        <div class="lg:col-span-5 space-y-6" data-aos="fade-right" data-aos-delay="100">
+                            <!-- Traffic Timeline Card -->
+                            <div class="bg-white border border-gray-100 rounded-2xl shadow-lg overflow-hidden hover-lift">
+                                <div class="bg-slate-50 px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                                    <h4 class="text-xs uppercase text-gray-500 font-bold tracking-wider">Évolution du Trafic</h4>
+                                    <span class="text-[10px] bg-white border border-gray-200 px-2 py-1 rounded text-gray-400 font-bold">VÉHICULES/JOUR</span>
+                                </div>
+                                <div class="p-6 space-y-5">
+                                    <div class="flex justify-between items-center group">
+                                        <div class="flex flex-col">
+                                            <span class="text-sm font-bold text-gray-700">Année 0</span>
+                                            <span class="text-xs text-gray-400">Actuel</span>
+                                        </div>
+                                        <span class="font-mono font-bold text-gray-800 text-lg group-hover:text-brand-blue transition-colors" id="disp_tjma0">--</span>
+                                    </div>
+                                    <div class="relative pl-4 border-l-2 border-brand-blue group">
+                                        <div class="flex justify-between items-center">
+                                            <div class="flex flex-col">
+                                                <span class="text-sm font-bold text-brand-blue">Mise en service</span>
+                                                <span class="text-xs text-blue-400" id="lbl_opening_year">Année --</span>
+                                            </div>
+                                            <span class="font-mono font-bold text-brand-blue text-xl group-hover:scale-110 transition-transform" id="disp_tjma_ms">--</span>
+                                        </div>
+                                    </div>
+                                    <div class="relative pl-4 border-l-2 border-brand-success group">
+                                        <div class="flex justify-between items-center">
+                                            <div class="flex flex-col">
+                                                <span class="text-sm font-bold text-brand-success">Année Horizon</span>
+                                                <span class="text-xs text-green-400" id="lbl_horizon_year">Année --</span>
+                                            </div>
+                                            <span class="font-mono font-bold text-brand-success text-xl group-hover:scale-110 transition-transform" id="disp_tjma_h">--</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Key Metrics Grid -->
+                            <div class="grid grid-cols-2 gap-4">
+                                <div class="p-4 bg-white rounded-xl border border-gray-100 shadow-sm hover-lift text-center">
+                                    <span class="block text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-1">Environnement</span>
+                                    <span id="res_Ei" class="block text-2xl font-black text-slate-800">--</span>
+                                </div>
+                                <div class="p-4 bg-white rounded-xl border border-gray-100 shadow-sm hover-lift text-center">
+                                    <span class="block text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-1">Facteur UVP</span>
+                                    <span id="res_P" class="block text-2xl font-black text-slate-800">--</span>
+                                </div>
+                            </div>
+
+                            <div class="p-5 bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl shadow-lg text-white hover-lift">
+                                <div class="flex justify-between items-end mb-2">
+                                    <span class="text-sm font-bold text-gray-300">Trafic Effectif (Teff)</span>
+                                    <span class="text-xs text-gray-500 font-mono">HORIZON</span>
+                                </div>
+                                <div class="flex items-baseline gap-2">
+                                    <span id="res_Teff" class="text-3xl font-black text-brand-accent tracking-tight">0</span>
+                                    <span class="text-sm text-gray-400 font-medium">UVP/j</span>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 gap-4">
+                                <div class="p-5 bg-white rounded-2xl border border-gray-100 shadow-md hover-lift group">
+                                    <div class="flex justify-between items-end mb-2">
+                                        <span class="text-sm font-bold text-gray-600 group-hover:text-brand-blue transition-colors">Capacité Admissible</span>
+                                        <span class="text-[10px] bg-gray-100 px-2 py-0.5 rounded text-gray-500 uppercase font-bold" id="lbl_qadm_unit">Par Voie</span>
+                                    </div>
+                                    <div class="flex items-baseline gap-2">
+                                        <span id="res_Qadm" class="text-3xl font-black text-slate-800 tracking-tight">0</span>
+                                        <span class="text-sm text-gray-500">UVP/h</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Col: Primary Result & Chart -->
+                        <div class="lg:col-span-7 flex flex-col gap-6" data-aos="fade-left" data-aos-delay="200">
+                            <!-- Primary Result Card -->
+                            <div class="p-8 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-2xl shadow-xl text-white relative overflow-hidden group hover:shadow-emerald-500/40 transition-shadow">
+                                <div class="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-white opacity-10 rounded-full blur-xl group-hover:scale-150 transition-transform duration-700"></div>
+                                
+                                <div class="flex items-center justify-between relative z-10">
+                                    <div>
+                                        <h4 class="text-sm uppercase text-emerald-100 font-bold mb-1 tracking-wider">Configuration Recommandée</h4>
+                                        <p class="text-xs text-emerald-50 opacity-90">Basé sur les seuils de saturation</p>
+                                    </div>
+                                    <div class="text-right">
+                                        <div class="flex items-baseline gap-3 justify-end">
+                                            <span id="res_N" class="text-6xl font-black text-white drop-shadow-md">--</span>
+                                            <span class="text-xl text-emerald-100 font-bold">voies</span>
+                                        </div>
+                                        <div class="text-xs text-emerald-100 font-mono mt-1 opacity-80 bg-black/10 px-2 py-1 rounded inline-block">
+                                            Calcul brut : <span id="res_N_raw">--</span>
+                                        </div>
+                                        <span class="text-sm text-emerald-50 block mt-1 font-medium opacity-75">par sens de circulation</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Chart Container -->
+                            <div class="flex-1 bg-white p-6 rounded-2xl border border-gray-100 shadow-lg min-h-[350px] relative hover-lift">
+                                <canvas id="trafficChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Footer Navigation -->
+                <div class="bg-white/80 backdrop-blur px-8 py-5 border-t border-gray-200 flex justify-between items-center mt-auto sticky bottom-0 z-10">
+                    <button id="btn-prev" onclick="changeStep(-1)" class="px-6 py-2.5 rounded-xl text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed font-bold transition-all border border-transparent hover:border-gray-200 flex items-center gap-2 group" disabled>
+                        <svg class="w-4 h-4 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                        Retour
+                    </button>
+                    
+                    <div id="validation-msg" class="text-sm text-red-600 font-bold hidden flex items-center gap-3 bg-red-50 px-4 py-2 rounded-lg border border-red-100 shadow-sm animate-pulse">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                        <span id="msg-text">Erreur</span>
+                    </div>
+
+                    <button id="btn-next" onclick="changeStep(1)" class="px-8 py-3 bg-brand-blue text-white rounded-xl hover:bg-blue-800 font-bold shadow-lg hover:shadow-blue-500/30 transition-all transform hover:-translate-y-1 active:scale-95 flex items-center gap-3 group">
+                        Suivant 
+                        <svg class="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- LOGIC -->
+    <script>
+        // Init AOS
+        AOS.init({
+            once: true,
+            duration: 800,
+            offset: 50
+        });
+
+        // --- 1. CONSTANTS & TABLES ---
+        const Cth_Map = { '2_lanes': 2000, '3_lanes': 3000, '4_lanes': 1800 };
+        const K1_Map = { 'E1': 1.00, 'E2': 0.85, 'E3': 0.70 };
+
+        function getEnvironmentClass(relief, sigma) {
+            if (relief === 'flat') {
+                if (sigma <= 0.1) return 'E1';
+                if (sigma <= 0.3) return 'E2';
+                return 'E3';
+            } else if (relief === 'rolling') {
+                if (sigma <= 0.1) return 'E1';
+                if (sigma <= 0.3) return 'E2';
+                return 'E3';
+            } else { return 'E3'; }
+        }
+
+        function getPFactor(roadType, envClass) {
+            const map = {
+                '2_lanes': { 'E1': 3, 'E2': 6, 'E3': 12 },
+                '3_lanes': { 'E1': 2.5, 'E2': 5, 'E3': 10 },
+                '4_lanes': { 'E1': 2, 'E2': 4, 'E3': 8 }
+            };
+            if (!map[roadType]) return 4;
+            return map[roadType][envClass] || 4;
+        }
+
+        function getK2Factor(cat, envClass) {
+            const matrix = {
+                '1': { 'E1': 1.00, 'E2': 0.95, 'E3': 0.90 },
+                '2': { 'E1': 0.95, 'E2': 0.90, 'E3': 0.85 },
+                '3': { 'E1': 0.90, 'E2': 0.85, 'E3': 0.80 },
+                '4': { 'E1': 0.85, 'E2': 0.80, 'E3': 0.75 },
+                '5': { 'E1': 0.80, 'E2': 0.75, 'E3': 0.70 }
+            };
+            if (!matrix[cat]) return 0.85;
+            return matrix[cat][envClass] || 0.85;
+        }
+
+        // --- 2. UI LOGIC ---
+        let currentStep = 1;
+        let chartInstance = null;
+
+        function toggleSettings() {
+            const panel = document.getElementById('settings-panel');
+            panel.classList.toggle('hidden');
+        }
+
+        function updateEnvironment() {
+            const L = parseFloat(document.getElementById('env_L').value) || 0;
+            const Ls = parseFloat(document.getElementById('env_Ls').value) || 0;
+            const relief = document.getElementById('env_relief').value;
+            
+            const badge = document.getElementById('env_badge');
+            const dispSigma = document.getElementById('disp_sigma');
+            
+            if (L <= 0) {
+                badge.className = "badge-env bg-gray-100 text-gray-400 border border-gray-200 px-6 py-2";
+                badge.innerText = "En attente...";
+                dispSigma.innerText = "--";
+                return;
+            }
+
+            const sigma = Ls / L;
+            dispSigma.innerText = sigma.toFixed(3);
+            
+            const envClass = getEnvironmentClass(relief, sigma);
+            badge.className = `badge-env badge-${envClass} px-6 py-2 shadow-sm transform scale-105`;
+            badge.innerText = `Environnement : ${envClass}`;
+        }
+
+        function goToStep(step) {
+            if (step < 1 || step > 4) return;
+            if (step > currentStep && !validateStep(currentStep)) return;
+
+            // Hide all
+            document.querySelectorAll('[id^="step-"]').forEach(el => {
+                if(el.id.includes('ind')) return;
+                el.classList.add('hidden');
+            });
+            // Show target
+            const target = document.getElementById(`step-${step}`);
+            target.classList.remove('hidden');
+            
+            // Re-trigger animations
+            target.classList.remove('aos-animate');
+            setTimeout(() => target.classList.add('aos-animate'), 50);
+
+            // Update Indicators
+            for (let i = 1; i <= 4; i++) {
+                const ind = document.getElementById(`step-ind-${i}`);
+                const label = ind.nextElementSibling;
+                ind.className = 'step-indicator group-hover:ring-4 group-hover:ring-blue-100'; 
+                
+                if (i === step) {
+                    ind.classList.add('step-active');
+                    label.classList.add('text-brand-blue');
+                    label.classList.remove('text-gray-400');
+                } else if (i < step) {
+                    ind.classList.add('step-completed');
+                    ind.innerHTML = '✓';
+                    label.classList.add('text-brand-success');
+                    label.classList.remove('text-gray-400');
+                } else {
+                    ind.classList.add('step-inactive');
+                    ind.innerHTML = i;
+                    label.classList.remove('text-brand-blue', 'text-brand-success');
+                    label.classList.add('text-gray-400');
+                }
+            }
+
+            document.getElementById('btn-prev').disabled = (step === 1);
+            const nextBtn = document.getElementById('btn-next');
+            
+            if (step === 4) {
+                nextBtn.innerHTML = 'Calculer <svg class="w-5 h-5 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>';
+                processTrafficCalculation(); 
+            } else {
+                nextBtn.innerHTML = 'Suivant <svg class="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>';
+            }
+
+            currentStep = step;
+        }
+
+        function changeStep(delta) {
+            goToStep(currentStep + delta);
+        }
+
+        function validateStep(step) {
+            const msgBox = document.getElementById('validation-msg');
+            const msgText = document.getElementById('msg-text');
+            msgBox.classList.add('hidden');
+            
+            let isValid = true;
+            let error = "";
+
+            if (step === 1) {
+                const L = parseFloat(document.getElementById('env_L').value);
+                const Ls = parseFloat(document.getElementById('env_Ls').value);
+                if (isNaN(L) || L <= 0) { error = "Longueur L invalide."; isValid = false; }
+                else if (isNaN(Ls) || Ls < 0) { error = "Longueur Ls invalide."; isValid = false; }
+                else if (Ls > L) { error = "Ls ne peut pas dépasser L."; isValid = false; }
+            } else if (step === 2) {
+                const tjma0 = parseFloat(document.getElementById('tr_tjma0').value);
+                if (isNaN(tjma0)) { error = "Trafic actuel requis."; isValid = false; }
+            }
+
+            if (!isValid) {
+                msgText.textContent = error;
+                msgBox.classList.remove('hidden');
+                msgBox.classList.add('animate-bounce');
+                setTimeout(() => msgBox.classList.remove('animate-bounce'), 1000);
+            }
+            return isValid;
+        }
+
+        // --- 3. CALCULATION & ANIMATION ---
+
+        function animateValue(id, start, end, duration) {
+            const obj = document.getElementById(id);
+            if (!obj) return;
+            // Use CountUp.js if available, else simple fallback
+            if (window.CountUp) {
+                const cu = new countUp.CountUp(id, end, { duration: duration/1000, separator: ' ' });
+                if (!cu.error) cu.start();
+                else obj.innerText = end.toLocaleString();
+            } else {
+                obj.innerText = end.toLocaleString();
+            }
+        }
+
+        function processTrafficCalculation() {
+            // Inputs
+            const L = parseFloat(document.getElementById('env_L').value) || 0;
+            const Ls = parseFloat(document.getElementById('env_Ls').value) || 0;
+            const relief = document.getElementById('env_relief').value;
+            const cat = document.getElementById('env_cat').value;
+            const TJMA0 = parseFloat(document.getElementById('tr_tjma0').value) || 0;
+            const tau = parseFloat(document.getElementById('tr_tau').value) || 0;
+            const d = parseFloat(document.getElementById('tr_d').value) || 0;
+            const n = parseFloat(document.getElementById('tr_n').value) || 20;
+            const Z = (parseFloat(document.getElementById('tr_z_pct').value) || 0) / 100;
+            const roadType = document.getElementById('cap_type').value;
+            const peakFactor = parseFloat(document.getElementById('const_peak').value) || 0.12;
+            const S_val = parseFloat(document.getElementById('const_S').value) || 0.67;
+
+            // Logic
+            const sigma = (L > 0) ? (Ls / L) : 0;
+            const Ei = getEnvironmentClass(relief, sigma);
+            const rate = 1 + (tau / 100);
+            const TJMA_ms = TJMA0 * Math.pow(rate, d);
+            const TJMA_h = TJMA_ms * Math.pow(rate, n);
+            const P = getPFactor(roadType, Ei);
+            const Teff = ((1 - Z) + (P * Z)) * TJMA_h;
+            const Q = peakFactor * Teff;
+            const K1 = K1_Map[Ei];
+            const K2 = getK2Factor(cat, Ei);
+            
+            let Cth_Base = 2000;
+            let isPerLane = false;
+            if (roadType === '2_lanes') { Cth_Base = 2000; isPerLane = false; }
+            else if (roadType === '3_lanes') { Cth_Base = 3000; isPerLane = false; }
+            else if (roadType === '4_lanes') { Cth_Base = 1800; isPerLane = true; }
+
+            const Qadm = Cth_Base * K1 * K2;
+
+            let N_final = 1;
+            let rawN = 0;
+            let message = "";
+
+            if (isPerLane) {
+                if (Qadm > 0) {
+                    rawN = (S_val * Q) / Qadm;
+                    N_final = Math.max(1, Math.ceil(rawN));
+                }
+            } else {
+                if (Qadm > 0) {
+                    const ratio = Q / Qadm;
+                    rawN = ratio;
+                    if (ratio > 1.0) {
+                         message = "Saturé ! Passage à 2x2 recommandé.";
+                         N_final = ">1";
+                    } else {
+                         N_final = "OK";
+                    }
+                }
+            }
+
+            // UI Updates with Animation
+            document.getElementById('res_Ei').textContent = Ei;
+            document.getElementById('res_P').textContent = P;
+            
+            animateValue('res_Teff', 0, Math.round(Teff), 1500);
+            animateValue('res_Qadm', 0, Math.round(Qadm), 1500);
+            
+            document.getElementById('lbl_qadm_unit').textContent = isPerLane ? "Par Voie" : "Total";
+            
+            const nResEl = document.getElementById('res_N');
+            nResEl.textContent = N_final;
+            
+            // Color Logic
+            const resultCard = nResEl.closest('.bg-gradient-to-r');
+            if (message) {
+                 resultCard.classList.remove('from-emerald-500', 'to-teal-500');
+                 resultCard.classList.add('from-red-500', 'to-orange-500');
+                 document.getElementById('validation-msg').classList.remove('hidden');
+                 document.getElementById('msg-text').textContent = message;
+            } else {
+                 resultCard.classList.add('from-emerald-500', 'to-teal-500');
+                 resultCard.classList.remove('from-red-500', 'to-orange-500');
+            }
+
+            document.getElementById('res_N_raw').textContent = typeof rawN === 'number' ? rawN.toFixed(2) : "--";
+            
+            document.getElementById('disp_tjma0').textContent = TJMA0.toLocaleString();
+            document.getElementById('disp_tjma_ms').textContent = Math.round(TJMA_ms).toLocaleString();
+            document.getElementById('disp_tjma_h').textContent = Math.round(TJMA_h).toLocaleString();
+            
+            document.getElementById('lbl_opening_year').textContent = `+${d} ans`;
+            document.getElementById('lbl_horizon_year').textContent = `+${d + n} ans`;
+
+            renderChart(TJMA0, rate, d, n, P, Z, S_val, Qadm, N_final, peakFactor, isPerLane);
+        }
+
+        function renderChart(tjma0, rate, d, n, P, Z, S, qadm, lanes, peakFactor, isPerLane) {
+            const ctx = document.getElementById('trafficChart').getContext('2d');
+            if (chartInstance) chartInstance.destroy();
+
+            const labels = [];
+            const dataTraffic = [];
+            const dataCap = [];
+            
+            let capacityLine = 0;
+            if (isPerLane) {
+                 const N_chart = (typeof lanes === 'number') ? lanes : 2;
+                 capacityLine = (N_chart * qadm) / S / peakFactor;
+            } else {
+                 capacityLine = qadm / peakFactor;
+            }
+            
+            const totalYears = d + n + 2; 
+
+            for (let i = 0; i <= totalYears; i++) {
+                labels.push(`An ${i}`);
+                const flow_veh = tjma0 * Math.pow(rate, i);
+                const flow_pcu = ((1 - Z) + (P * Z)) * flow_veh;
+                dataTraffic.push(flow_pcu);
+                dataCap.push(capacityLine);
+            }
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Trafic (UVP/Jour)',
+                            data: dataTraffic,
+                            borderColor: '#1e3a8a',
+                            backgroundColor: 'rgba(30, 58, 138, 0.1)',
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 4,
+                            pointBackgroundColor: '#fff',
+                            pointBorderColor: '#1e3a8a',
+                            pointBorderWidth: 2
+                        },
+                        {
+                            label: 'Capacité Limite',
+                            data: dataCap,
+                            borderColor: '#ef4444',
+                            borderDash: [5, 5],
+                            borderWidth: 2,
+                            pointRadius: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: {
+                        y: { duration: 2000, easing: 'easeOutQuart' }
+                    },
+                    plugins: {
+                        legend: { position: 'bottom' },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            titleFont: { family: 'Alexandria' },
+                            bodyFont: { family: 'Alexandria' },
+                            padding: 12,
+                            cornerRadius: 8
+                        }
+                    },
+                    scales: {
+                        x: { grid: { display: false } },
+                        y: { beginAtZero: true, grid: { color: '#f3f4f6' } }
+                    }
+                }
+            });
+        }
+        
+        window.addEventListener('load', () => {
+             updateEnvironment();
+        });
+
+        // --- 4. EXPORT PDF ---
+        window.generatePDF = function() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            doc.setFontSize(14);
+            doc.text("République Algérienne Démocratique et Populaire", 105, 20, { align: "center" });
+            doc.setFontSize(18);
+            doc.setTextColor(30, 58, 138); 
+            doc.text("Masar El-Djazair - Rapport d'Étude", 105, 30, { align: "center" });
+            
+            // ... (Rest of PDF logic remains similar, ensuring fonts) ...
+            doc.setFontSize(12);
+            doc.setTextColor(0, 0, 0);
+            const projName = document.getElementById('proj_name').value || "Projet Sans Nom";
+            const date = new Date().toLocaleDateString('fr-FR');
+            doc.text(`Projet: ${projName}`, 14, 45);
+            doc.text(`Date: ${date}`, 14, 52);
+            
+            const L = document.getElementById('env_L').value;
+            const Ls = document.getElementById('env_Ls').value;
+            const relief = document.getElementById('env_relief').options[document.getElementById('env_relief').selectedIndex].text;
+            const cat = document.getElementById('env_cat').options[document.getElementById('env_cat').selectedIndex].text;
+            const tjma0 = document.getElementById('tr_tjma0').value;
+            const tau = document.getElementById('tr_tau').value;
+            const z = document.getElementById('tr_z_pct').value;
+            
+            doc.autoTable({
+                startY: 60,
+                head: [['Paramètre', 'Valeur', 'Unité']],
+                body: [
+                    ['Longueur Totale (L)', L, 'm'],
+                    ['Longueur Courbes (Ls)', Ls, 'm'],
+                    ['Relief', relief, '-'],
+                    ['Catégorie', cat, '-'],
+                    ['Trafic Actuel (TJMA0)', tjma0, 'v/j'],
+                    ['Taux de Croissance', tau, '%'],
+                    ['% Poids Lourds (Z)', z, '%']
+                ],
+                theme: 'striped',
+                headStyles: { fillColor: [30, 58, 138] }
+            });
+            
+            const tjma_ms = document.getElementById('disp_tjma_ms').innerText;
+            const tjma_h = document.getElementById('disp_tjma_h').innerText;
+            const teff = document.getElementById('res_Teff').innerText;
+            const qadm = document.getElementById('res_Qadm').innerText;
+            const n_res = document.getElementById('res_N').innerText;
+            
+            doc.autoTable({
+                startY: doc.lastAutoTable.finalY + 15,
+                head: [['Indicateur', 'Résultat Calculé', 'Unité']],
+                body: [
+                    ['Trafic Mise en Service', tjma_ms, 'v/j'],
+                    ['Trafic Horizon', tjma_h, 'v/j'],
+                    ['Trafic Effectif (Teff)', teff, 'UVP/j'],
+                    ['Capacité Admissible (Qadm)', qadm, 'UVP/h']
+                ],
+                theme: 'striped',
+                headStyles: { fillColor: [16, 185, 129] }
+            });
+            
+            let finalY = doc.lastAutoTable.finalY + 20;
+            doc.setDrawColor(0);
+            doc.setFillColor(240, 253, 244); 
+            doc.rect(14, finalY, 182, 30, 'F');
+            
+            doc.setFontSize(14);
+            doc.setTextColor(21, 128, 61);
+            doc.text("DÉCISION FINALE : NOMBRE DE VOIES", 105, finalY + 10, { align: "center" });
+            
+            doc.setFontSize(22);
+            doc.setFont("helvetica", "bold");
+            doc.text(n_res, 105, finalY + 22, { align: "center" });
+            
+            doc.save("Rapport_MasarDZ.pdf");
+        };
+    </script>
+</body>
+</html>

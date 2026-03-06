@@ -1,0 +1,86 @@
+# Masar DZ - Project Gitignore
+
+# =========================
+# 1. Database & Secrets (CRITICAL)
+# =========================
+# Environment variables containing API keys and secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Firebase specific logs and cache
+firebase-debug.log
+.firebase/
+
+# Private keys and service accounts
+serviceAccountKey.json
+*.pem
+*.key
+
+# =========================
+# 2. Dependencies
+# =========================
+# Node.js dependencies
+node_modules/
+
+# Bower dependencies
+bower_components/
+
+# =========================
+# 3. Build & Temp Files
+# =========================
+# Production build output
+dist/
+build/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Temporary files and directories
+.tmp/
+.temp/
+tmp/
+temp/
+
+# =========================
+# 4. OS & IDE Specifics
+# =========================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# VS Code settings
+.vscode/
+*.code-workspace
+
+# IntelliJ / JetBrains settings
+.idea/
+*.iml
+
+# =========================
+# 5. Miscellaneous & Metadata
+# =========================
+# Vercel deployment configuration
+.vercel/
+
+# Local history (if using local history extensions)
+.history/
+
+# Backup files
+*.bak
+*.swp
+
+# Configuration files with secrets
+config.js
